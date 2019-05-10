@@ -2,10 +2,13 @@
 title: "Rabeony-car316-FinalProject"
 author: "Christopher Rabeony"
 date: "5/6/2019"
-output:
-  ioslides_presentation: default
-  slidy_presentation: default
+output: html_document
 ---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 library(tidyverse)
@@ -83,83 +86,65 @@ clean_df <- function(df) { {
   return(df1) }
 ```
 
-```{r}
+```{r, include = FALSE}
 spotify_USA <- clean_df(USA)
 spotify_USA$Code <- str_replace_all(spotify_USA$Code, "\\d{1,3}", "NA")
 head(spotify_USA, 4)
+
+# The data we extracted above lists the top 200 songs streamed for a given country. We are given the name of each song, the artist involved in its creation, the number of total streams, and its rank in the top 200. I created a column called "Code" which displays the continent that each our data table represents. For the USA, table we use "NA" (North America)
 ```
 
-The data we extracted above lists the top 200 songs streamed for a given country. We are given the name of each song, the artist involved in its creation, the number of total streams, and its rank in the top 200. I created a column called "Code" which displays the continent that each our data table represents. For the USA, table we use "NA" (North America)
 
-International information.
-========================================================
-Now to include the information of the other five countries in the same format.
-
-Argentina (South America)
 ```{r, include = FALSE}
 AR <- get_tbl("https://spotifycharts.com/regional/ar/weekly/latest")
 spotify_AR <- clean_df(AR)
 spotify_AR$Code <- str_replace_all(spotify_AR$Code, "\\d{1,3}", "SA")
 ```
 
-```{r}
+```{r, include = FALSE}
 head(spotify_AR, 2)
 ```
 
-Bolivia (South America)
 ```{r, include = FALSE}
 BO <- get_tbl("https://spotifycharts.com/regional/bo/weekly/latest")
 spotify_BO <- clean_df(BO)
 spotify_BO$Code <- str_replace_all(spotify_BO$Code, "\\d{1,3}", "SA")
 ```
 
-```{r}
+```{r, include = FALSE}
 head(spotify_BO, 2)
 ```
 
-========================================================
-United Kingdom (Europe)
 ```{r, include = FALSE}
 UK <- get_tbl("https://spotifycharts.com/regional/gb/weekly/latest")
 spotify_UK <- clean_df(UK)
 spotify_UK$Code <- str_replace_all(spotify_UK$Code, "\\d{1,3}", "EU")
 ```
 
-```{r}
+```{r, include = FALSE}
 head(spotify_UK, 2)
 ```
 
-```{r}
+```{r, inclue = FALSE}
 BE <- get_tbl("https://spotifycharts.com/regional/be/weekly/latest")
 spotify_BE <- clean_df(BE)
 spotify_BE$Code <- str_replace_all(spotify_BE$Code, "\\d{1,3}", "EU")
 ```
 
-Belgium (Europe)
-```{r}
+```{r, include = FALSE}
 head(spotify_BE, 2)
 ```
 
-========================================================
-Finally Australia (Australia)
 ```{r, include = FALSE}
 AU <- get_tbl("https://spotifycharts.com/regional/au/weekly/latest")
 spotify_AU <- clean_df(AU)
 spotify_AU$Code <- str_replace_all(spotify_AU$Code, "\\d{1,3}", "AUS")
 ```
 
-```{r}
+```{r, include = FALSE}
 head(spotify_AU, 4)
 ```
 
-  <br />
-
-<font size = "10"> Next Step: Data Manipulation and Representation</font>
-
-With our datasets now imported and cleaned we can now manipulate our data to reveal new information.
-
-Creating a dataframe that represents Global Streams
-========================================================
 ```{r, include = FALSE}
 spotify_NA <- spotify_USA
 spotify_AUS <- spotify_AU
@@ -335,9 +320,8 @@ head(spotifytopInformation)
 ```
 Above is our most popular songs, by our top artists.
 
-Find the audio track freatures for each song in the top 50.
-========================================================
-```{r}
+## Top 50 audio tracks
+```{r, include = FALSE}
 spotifytrackInfo <- spotifytopInformation$id
 spotifytrackFeatures <- get_track_audio_features(spotifytrackInfo)
 spotifytrackAnalysis <- get_tracks(spotifytrackInfo) %>% select(9,7,10)
@@ -353,28 +337,33 @@ head(trackInformation, 2)
 ```
 The Spotify for Developers App does a great job analyzing the musical characteristics for each and every song. These features inclue a songs, "danceability", "tempo", "liveliness", "energy", and its use of "acoustics"
 
-Is there any relation between song popularity and characteristics?
-========================================================
-I want to create a linear model that might be able to find any strong correlation between these key characteristics and how these musical tracks will be received by the general public.
+## Linear Model for Popularity
 ```{r}
 topSongs.lm <- lm(formula = popularity ~ acousticness + liveness + energy + valence + loudness + tempo, data = trackInformation)
+```
+
+```{r}
+coefficients(topSongs.lm)
+```
+
+## Linear Model for Popularity
+```{r}
 summary(topSongs.lm)
 ```
 
+## My Thoughts
 Based on the information I've presented. There really isn't a conclusion that can be properly drawn. There doesn't seem to be any correlation between the popularity of any given song, and its features. 
 
-Graphing Representation
-========================================================
-```{r}
+## Graphing Representation
+```{r, include = FALSE}
 trackInfo <- gather(trackInformation, 'danceability':'tempo', key = 'characteristic', value = 'value')
 ```
 
-```{r, out.width = "1500px"}
+```{r}
 ggplot(trackInfo, aes(value, popularity)) + geom_point() + facet_wrap(~characteristic, ncol = 5, scales = "free_x")
 ```
 
-The top 10 most streamed artists in the world.
-========================================================
+## The top 10 most streamed artists in the world.
 ```{r, include = FALSE}
 spotify_globalArtists <- spotify_Global %>%
   group_by(Artist) %>%
@@ -512,4 +501,3 @@ However the biggest point I want to make is:
 Music tastes aren't objective.
 
 A lot of our enjoyment in music comes from our socioeconomic backgrounds, how our environment has influenced us, and what's readily available for us to listen to.
-
