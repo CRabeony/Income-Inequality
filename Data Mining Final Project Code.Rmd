@@ -1,0 +1,566 @@
+---
+title: "Final Project"
+author: "Christopher Rabeony"
+date: "4/28/2020"
+output: html_document
+---
+
+```{r}
+getwd()
+```
+
+```{r setup, include = FALSE}
+library(curl)
+library(data.table)
+library(e1071)
+library(ggplot2)
+library(glmnet)
+library(randomForest)
+library(tidyverse)
+library(prediction)
+library(gtools)
+library(ROCR)
+library(caret)
+set.seed(123)
+```
+
+## Read data from UCI repository.
+
+```{r}
+file1 <- url("https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data") 
+file2 <- url("https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.test")
+```
+
+```{r}
+train <- read.table(file1, sep = ",", header = FALSE)
+test  <- read.table(file2, sep = ",", header = FALSE, skip = 1)
+```
+
+
+
+```{r}
+# Combine the automated train/test split so we can perform our own splits
+data <- rbind(train, test)
+data1 <- data
+
+# Label the variable names
+colnames(data1) <- c("age", "workclass", "fnlwgt","education", "education_num", 
+                     "marital_status", "occupation", "relationship", "race", "sex",
+                     "capital_gain", "capital_loss", 
+                     "hours_per_week", "native_country", "income")
+```
+
+### Information about the variables.
+```{r}
+str(data1)
+```
+
+<br>
+
+### Cleaning the data set.
+```{r}
+# trim whitespace from char variables
+data1 <- data1 %>%
+  mutate_if(is.factor, str_trim)
+# find missing data and convert to NA
+data1[data1 == "?"] <- NA
+```
+
+The dependent variable should only have 2 categories (binary).
+
+```{r}
+table(data1$income)
+```
+
+```{r}
+# Change income to two factors.
+data1$income <- as.character(data1$income)
+
+data1$income[data1$income == "<=50K." | 
+             data1$income == "<=50K"] <- "<=50K"
+data1$income[data1$income == ">50K." | 
+             data1$income == ">50K"] <- ">50K"
+
+table(data1$income)
+```
+
+Combine similar 'workclass' categories to reduce number of factors.
+
+```{r}
+# Change employment to include less factors.
+data1$workclass <- as.character(data1$workclass)
+
+data1$workclass[data1$workclass == "Without-pay" |
+                data1$workclass == "Never-worked"] <- "Jobless"
+data1$workclass[is.na(data1$workclass)] <- "Jobless"
+data1$workclass[data1$workclass == "State-gov" |
+                data1$workclass == "Local-gov"]  <- "govt" 
+data1$workclass[data1$workclass == "Self-emp-inc" |
+                data1$workclass == "Self-emp-not-inc"]  <- "Self-employed" 
+ 
+table(data1$workclass)
+```
+
+Convert 'NA' observations from 'occupation' to unemployed.
+
+```{r}
+# Change the occupation and remove "NA" 
+data1$occupation <- as.character(data1$occupation)
+data1$occupation[is.na(data1$occupation)] <- "Unemployed"
+```
+
+Reduced number of factors in 'marital_status'.
+
+```{r}
+# Combine arbitrary marital status to three factors.
+data1$marital_status <- as.character(data1$marital_status)
+
+data1$marital_status[data1$marital_status == "Married-AF-spouse" |
+                     data1$marital_status == "Married-civ-spouse" |
+                     data1$marital_status == "Married-spouse-absent"] <- "Married"
+data1$marital_status[data1$marital_status == "Divorced" |
+                     data1$marital_status == "Separated" |
+                     data1$marital_status == "Widowed"] <- "Not-Married"
+  
+table(data1$marital_status)
+```
+
+Convert countries to continents to reduce the number of factors.
+
+```{r}
+# Change the native_country variable.
+data1$native_country <- as.character(data1$native_country)
+data1$native_country[is.na(data1$native_country)] <- "Other"
+```
+
+```{r}
+# Reduce countries to their respective continents.
+data1$native_country <- as.character(data1$native_country)
+
+north.america <- c("Canada", "Cuba", "Dominican-Republic", "El-Salvador", "Guatemala",
+                   "Haiti", "Honduras", "Jamaica", "Mexico", "Nicaragua",
+                   "Outlying-US(Guam-USVI-etc)", "Puerto-Rico", "Trinadad&Tobago",
+                   "United-States")
+asia <- c("Cambodia", "China", "Hong", "India", "Iran", "Japan", "Laos",
+          "Philippines", "Taiwan", "Thailand", "Vietnam")
+south.america <- c("Columbia", "Ecuador", "Peru")
+europe <- c("England", "France", "Germany", "Greece", "Holand-Netherlands",
+            "Hungary", "Ireland", "Italy", "Poland", "Portugal", "Scotland",
+            "Yugoslavia")
+other <- c("South", "?", "Other")
+
+data1$native_country[data1$native_country %in% north.america] <- "North-America"
+data1$native_country[data1$native_country %in% asia]  <- "Asia"
+data1$native_country[data1$native_country %in% south.america] <- "South-America" 
+data1$native_country[data1$native_country %in% europe] <-  "Europe"  
+data1$native_country[data1$native_country %in% other] <- "Other"
+ 
+table(data1$native_country)
+```
+
+Education.
+
+```{r}
+table(data1$education_num)
+```
+
+Set levels of discrete variables.
+
+```{r}
+data1$workclass <- as.factor(data1$workclass)
+data1$marital_status <- as.factor(data1$marital_status)
+data1$occupation <- as.factor(data1$occupation)
+data1$relationship <- as.factor(data1$relationship)
+data1$race <- as.factor(data1$race)
+data1$sex <- as.factor(data1$sex)
+data1$native_country <- as.factor(data1$native_country)
+```
+
+Remove extraneous variables we will not be using in our analysis.
+
+```{r}
+new_var <- names(data1) %in% c("fnlwgt", "education", "capital_gain", "capital_loss")
+data1 <- data1[!new_var]
+str(data1)
+```
+
+```{r}
+head(data1)
+```
+
+<br>
+
+### Preliminary Analysis
+
+```{r}
+# Plot the number of observations that make over $50,000 and under $50,000
+barplot(table(data1$income),  main='Income Classification', col='blue', ylab ='No. of people')
+```
+
+As we can see, there's an inbalance in the data.
+
+```{r}
+## Histogram of age by income group
+ggplot(data1, aes(age)) + geom_histogram(aes(fill = income), color='black', binwidth=1)
+```
+
+From this plot we can see that the distribution of people who make above 50K peaks out at a higher age than the distribution of people who make less than 50K.
+
+<br>
+
+### Variable Selection
+
+#### Forward/Backward Selection
+
+```{r}
+data1$income <- as.factor(data1$income)
+model_glm <- glm(income ~ ., data = data1, family = binomial('logit'))
+summary(model_glm)
+```
+
+This logistic regression model appears to fit the data well. To explore the possibility of the model being parsimonious, both the forward and backward stepwise selection algorithms using AIC are performed.
+
+```{r}
+income_full <- model_glm  # full model is the model just fitted
+income_null <- glm(income ~ 1, data = data1, family = binomial('logit'))
+```
+
+```{r}
+# Backward selection.
+step1 <- step(income_full, trace = F,
+              scope = list(lower=formula(income_null), upper=formula(income_full)),
+              k = 2, direction = 'backward')
+step1$coefficients
+```
+
+```{r}
+# Forward Selection
+step2 <- step(income_full, trace = F,
+              scope = list(lower=formula(income_null), upper=formula(income_full)),
+              k = 2, direction = 'forward')
+step2$coefficients
+```
+
+Both the forward and backward stepwise selection algorithms give the same model as the initial fit. Thus, the original model is chosen and model diagnostics are to follow.
+
+
+### Logistic Regression for our original UNBALANCED dataset.
+```{r}
+table(data1$income)
+```
+
+Let's test how logistic regression peforms on our original unbalanced dataset.
+```{r}
+# Split our training and testing data into a 80%-20% ratio.
+split <- sample(dim(data1)[1], 0.8*dim(data1)[1])
+train <- data1[split,]
+test  <- data1[-split,]
+```
+
+```{r}
+# Logistic regression using data1 our unbalanced dataset
+model_glm <- glm(income ~ ., data = train, family = "binomial")
+summary(model_glm)
+```
+
+In order to return probabilities, we must specify type = "response". (The default setting is type = "link", which corresponds to the log odds value.)
+```{r}
+head(predict(model_glm, type = "response"))
+```
+
+Traditionally, a midpoint value such as 0.5 is used to “categorize” the probabilities. (This is actually equivalen to specifyng type = "link" and using a threshhold value of 0.)
+```{r}
+train_prob <- predict(model_glm, test, type = 'response')
+train_pred <- ifelse(predict(model_glm, type = "response") > 0.5, "Yes", "No")
+head(train_pred)
+```
+
+Probably the most common thing that is done to evaluate a classificiation models is to compare the actual response values with the predicted ones using a cross-table, which is often called a confusion matrix. This matrix can be generated with the base table() function.
+```{r}
+# Making predictions on the train set.
+train_tab <- table(predicted = train_pred, actual = train$income)
+train_tab
+```
+
+```{r}
+# Making Predictions on the test set
+test_pred <- ifelse(predict(model_glm, newdata = test, type = "response") > 0.5, "Yes", "No")
+test_tab <- table(predicted = test_pred, actual = test$income)
+test_tab
+```
+
+Perhaps unsurprisingly, the most common metrics for evaluating logistic regression models are test accuracy (which is simply the additive inverse of the error rate). These metrics can be calculated directly from the confustion matrix.
+
+```{r}
+# Function to calculate our accuracy, precision, and f1 scores for our tables.
+calculate_stats <- function(table) {
+  n = sum(table) # number of instances
+  diag = diag(table) # number of correctly classified instances per class 
+  rowsums = apply(table, 1, sum) # number of instances per class
+  colsums = apply(table, 2, sum) # number of predictions per class
+  accuracy = sum(diag) / n 
+  precision = diag / colsums
+  recall = diag / rowsums
+  f1 = 2 * precision * recall / (precision + recall)
+  return(data.frame(accuracy, precision, recall, f1))
+}
+```
+
+```{r}
+# Calculate our accuracy, precision, recall, and f1 score for our test data.
+calculate_stats(test_tab)
+```
+
+```{r}
+# Calculate our accuracy, precision, recall, and f1 score for our training data.
+calculate_stats(train_tab)
+```
+Due to the unbalanced nature of our data (where the number of individuals with income less than 50,000 is much greater than individuals with income greater than 50,000). 
+
+
+### Naive Bayes
+```{r}
+# Create model and test accuracy table
+bayes_model <- naiveBayes(income ~ ., data = train)
+bayes_pred <- predict(bayes_model, test)
+```
+
+```{r}
+# Confusion matrix for Bayes
+bayes_table <- table(bayes_pred, test$income)
+bayes_table
+```
+
+```{r}
+# Our evaluation metrics for Naive Bayes.
+calculate_stats(bayes_table)
+```
+
+### Decision Tree
+```{r}
+library(rpart)
+```
+
+```{r}
+# Implementing Decision Tree
+tree_adult_model <- rpart(income~.,data = train)
+tree_pred_prob <- predict(tree_adult_model, newdata = test, type = 'prob')
+tree_pred_income <- predict(tree_adult_model,test ,type = "class")
+# an extra argument (type = "class") is required to directly classify prediction into classes
+```
+
+```{r}
+tree_tab <- table(test$income, tree_pred_income)
+tree_tab
+```
+
+```{r}
+calculate_stats(tree_tab)
+```
+
+Here is how to plot the decision tree:
+```{r}
+library(rpart.plot)
+rpart.plot(tree_adult_model,cex = 0.6)
+```
+
+
+### Random Forest
+
+Random forests (RF) improves predictive accuracy by generating a large number of bootstrapped trees. 
+
+```{r}
+# Generate optimal model
+rf_model <- randomForest(income ~ ., data = train, ntree = 1000)
+rf_pred.prob <- predict(rf_model, newdata = test, type = 'prob')
+rf_pred <- predict(rf_model, newdata = test, type = 'class')
+```
+
+```{r}
+# Confusion matrix
+rf_table <- table(rf_pred, test$income)
+rf_table
+```
+
+```{r}
+# Our evaluation metrics for Random Forests
+calculate_stats(rf_table)
+```
+
+```{r}
+# create a prediction object
+pr <- prediction(train_prob, test$income)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+
+# create a data frame for TP and FP rates
+dd1 <- data.frame(FP = prf@x.values[[1]], TP = prf@y.values[[1]])
+
+# RF
+pr2 <- prediction(rf_pred.prob[,2], test$income)
+prf2 <- performance(pr2, measure = "tpr", x.measure = "fpr")
+dd2 <- data.frame(FP = prf2@x.values[[1]], TP = prf2@y.values[[1]])
+
+# NB
+pr3 <- prediction(as.numeric(bayes_pred), test$income)
+prf3 <- performance(pr3, measure = "tpr", x.measure = "fpr")
+dd3 <- data.frame(FP = prf3@x.values[[1]], TP = prf3@y.values[[1]])
+
+# CART
+pr4 <- prediction(tree_pred_prob[,2], test$income)
+prf4 <- performance(pr4, measure = "tpr", x.measure = "fpr")
+dd4 <- data.frame(FP = prf4@x.values[[1]], TP = prf4@y.values[[1]])
+
+# plot ROC curve for logistic regression
+g <- ggplot() + 
+  geom_line(data = dd1, aes(x = FP, y = TP, color = 'Logistic Regression')) + 
+  geom_line(data = dd2, aes(x = FP, y = TP, color = 'Random Forests')) + 
+  geom_line(data = dd3, aes(x = FP, y = TP, color = 'CART')) + 
+  geom_line(data = dd4, aes(x = FP, y = TP, color = 'Naive Bayes')) + 
+  geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1)) +
+  ggtitle('ROC Curve') + 
+  labs(x = 'False Positive Rate', y = 'True Positive Rate') 
+
+g + scale_colour_manual(name = 'Classifier', values = c('Logistic Regression'='#E69F00', 'Random Forests'='#D55E00', 'Naive Bayes'='#0072B2', 'CART'='#009E73'))
+```
+
+```{r}
+# AUC
+auc <- rbind(performance(pr, measure = 'auc')@y.values[[1]],
+             performance(pr2, measure = 'auc')@y.values[[1]],
+             performance(pr3, measure = 'auc')@y.values[[1]],
+             performance(pr4, measure = 'auc')@y.values[[1]])
+rownames(auc) <- (c('Logistic Regression', 'Random Forests', 'Naive Bayes', 'CART'))
+colnames(auc) <- 'Area Under ROC Curve'
+round(auc, 4)
+```
+
+
+ROC curve is a plot of true positive rate against false positive rate under all threshold values. Confusion matrix is a measurement of overall prediction accuracy. Since the majority of observations in the data set has income less than $50,000 a year, sensitivity and specificity contribute to the overall accuracy by different weights. The four different classifiers are compared using ROC curve.
+
+### NEW
+### Balancing our Data via Downsampling.
+```{r}
+# Unbalanced data
+table(data1$income)
+```
+
+```{r}
+# Create balanced dataset HERE (run for b trials)
+less <- which(data1$income == "<=50K")
+greater <- which(data1$income == ">50K")
+downsample0 <- sample(less, length(greater), replace = FALSE)
+data2 <- rbind(data1[greater,], data1[downsample0,])
+```
+
+```{r}
+# Balanced data
+table(data2$income)
+```
+
+```{r}
+# Change train/test split ratio HERE
+# to use unbalenced (original data) - use data1
+# to use balanced data - use data2
+split2 <- sample(dim(data2)[1], 0.8*dim(data2)[1])
+train2 <- data2[split2,]
+test2  <- data2[-split2,]
+```
+
+
+### Logistic Regression (unpenalized) for balanced data
+
+```{r}
+# Making predictions on test set
+model_glm2 <- glm(income ~ ., family = "binomial", train2)
+adult_pr.test2 <- predict(model_glm2, type = "response", newdata = test2)
+```
+
+```{r}
+train_pred2 <- ifelse(predict(model_glm2, type = "response") > 0.5, "Yes", "No")
+head(train_pred2)
+```
+
+```{r}
+# Making predictions on the train set.
+train_tab2 <- table(predicted = train_pred2, actual = train2$income)
+train_tab2
+```
+
+```{r}
+# Making Predictions on the test set
+test_pred2 <- ifelse(predict(model_glm2, newdata = test2, type = "response") > 0.5, "Yes", "No")
+test_tab2 <- table(predicted = test_pred2, actual = test2$income)
+test_tab2
+```
+
+```{r}
+# Our evaluation metrics for the balanced training data.
+calculate_stats(train_tab2)
+```
+
+```{r}
+# Our evaluation metrics for the balanced testing data.
+calculate_stats(test_tab2)
+```
+
+### Naive Bayes for Balanced Data
+```{r}
+# Create model and test accuracy table
+bayes_model2 <- naiveBayes(income ~ ., data = train2)
+bayes_pred2 <- predict(bayes_model, test2)
+```
+
+```{r}
+# Confusion matrix for Bayes
+bayes_table2 <- table(bayes_pred2, test2$income)
+bayes_table2
+```
+
+```{r}
+# Our evaluation metrics for Naive Bayes.
+calculate_stats(bayes_table2)
+```
+
+
+### Decision Tree For Balanced Data
+```{r}
+# Implementing Decision Tree
+tree_adult_model2 <- rpart(income~.,data = train2)
+pred_income2 <- predict(tree_adult_model2,test2 ,type = "class")
+# an extra argument (type = "class") is required to directly classify prediction into classes
+```
+
+```{r}
+tree_tab2 <- table(test2$income, pred_income2)
+tree_tab2
+```
+
+```{r}
+calculate_stats(tree_tab2)
+```
+
+Here is how to plot the decision tree:
+```{r}
+rpart.plot(tree_adult_model2 ,cex = 0.6)
+```
+
+### Random Forest
+
+Random forests (RF) improves predictive accuracy by generating a large number of bootstrapped trees. 
+```{r}
+# Generate optimal model
+rf_model2 <- randomForest(income ~ ., data = train2, ntree = 1000)
+rf_pred.prob2 <- predict(rf_model2, newdata = test2, type = 'prob')
+rf_pred2 <- predict(rf_model2, newdata = test2, type = 'class')
+```
+
+```{r}
+# Confusion matrix
+rf_table2 <- table(rf_pred2, test2$income)
+rf_table2
+```
+
+```{r}
+# Our evaluation metrics for Naive Bayes.
+calculate_stats(rf_table2)
+```
